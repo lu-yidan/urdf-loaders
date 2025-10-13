@@ -106,9 +106,25 @@ async function handleDropItems(items) {
     fileEntries.push(...collected);
 
     if (fileEntries.length === 0) return;
-    // Find a .xml as root
-    const xmlEntry = fileEntries.find(e => /\.xml$/i.test(e.path));
-    if (!xmlEntry) return;
+    // Find the best .xml as root: prefer one containing a <worldbody> with bodies/geoms
+    const xmlCandidates = fileEntries.filter(e => /\.xml$/i.test(e.path));
+    if (xmlCandidates.length === 0) return;
+    let xmlEntry = xmlCandidates[0];
+    try {
+        const scored = await Promise.all(xmlCandidates.map(async e => {
+            const text = await new Promise(res => e.file.text().then(res));
+            // Simple heuristic score
+            let score = 0;
+            if (/<mujoco[\s>]/i.test(text)) score += 1;
+            if (/<worldbody[\s>]/i.test(text)) score += 3;
+            if (/<body[\s>]/i.test(text)) score += 2;
+            if (/<geom[\s>]/i.test(text)) score += 2;
+            if (/<asset[\s>]/i.test(text)) score += 1;
+            return { entry: e, score };
+        }));
+        scored.sort((a, b) => b.score - a.score);
+        if (scored[0] && scored[0].score > 0) xmlEntry = scored[0].entry;
+    } catch (err) {}
 
     // Build a virtual file map path->blobURL
     const pathToUrl = new Map();
@@ -311,17 +327,29 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const xmlAnglesAreRadians = angleUnit === 'radian';
     let meshBase;
     if (dndActive && dndRootDir) {
-        meshBase = (dndRootDir + meshdir).replace(/^\/+/, '').replace(/\/+$/, '/').replace(/\/+/g, '/');
+        const root = dndRootDir.replace(/\/+$/, '/');
+        const md = (meshdir || '').replace(/^\/+/, '');
+        meshBase = (root + (md ? md + '/' : '')).replace(/\/+/g, '/');
     } else {
         const urlObj = new URL(url, window.location.origin);
         const xmlDir = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
-        meshBase = (xmlDir + meshdir).replace(/\/+$/, '/').replace(/\/+/g, '/');
+        const md = (meshdir || '').replace(/^\/+/, '');
+        meshBase = (xmlDir + (md ? md + '/' : '')).replace(/\/+/g, '/');
     }
 
-    // Asset meshes map name->file
+    // Asset meshes map key->file. Key prefers explicit name; otherwise use file basename (without extension)
     const assetMeshes = new Map();
-    doc.querySelectorAll('mujoco > asset > mesh[name][file]')
-        .forEach(m => assetMeshes.set(m.getAttribute('name'), m.getAttribute('file')));
+    doc.querySelectorAll('mujoco > asset > mesh[file]').forEach(m => {
+        const fileAttr = m.getAttribute('file');
+        if (!fileAttr) return;
+        let key = m.getAttribute('name');
+        if (!key) {
+            const parts = fileAttr.split(/[\\\/]/);
+            const base = parts[parts.length - 1];
+            key = base.replace(/\.[^.]+$/,'');
+        }
+        assetMeshes.set(key, fileAttr);
+    });
 
     // Clear previous
     const previous = worldRoot.getObjectByName('mj-root');
@@ -345,9 +373,12 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
                 const u = new URL(url, window.location.origin);
                 const pn = u.pathname.replace(/^\/+/, '');
                 let rel = pn;
-                if (mapRoot) {
-                    const idx = pn.lastIndexOf(mapRoot.replace(/^\/+/, ''));
-                    if (idx >= 0) rel = pn.substring(idx);
+                // Try to strip up to known roots: dropped root dir or 'assets' from compiler
+                const roots = [mapRoot, 'assets', 'meshes', 'mesh'];
+                for (const r of roots) {
+                    if (!r) continue;
+                    const idx = pn.indexOf(String(r).replace(/^\/+/, ''));
+                    if (idx >= 0) { rel = pn.substring(idx); break; }
                 }
                 // Try exact, and without leading slashes
                 const candidates = [rel, pn, rel.replace(/^\/+/, ''), pn.replace(/^\/+/, '')];
@@ -367,7 +398,10 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
         if (type === 'mesh') {
             if (!shouldRenderGeom(geomEl)) return;
             const meshName = geomEl.getAttribute('mesh');
-            const file = meshName ? assetMeshes.get(meshName) : null;
+            let file = null;
+            if (meshName) {
+                file = assetMeshes.get(meshName) || assetMeshes.get(meshName.replace(/\.[^.]+$/,''));
+            }
             if (file) {
                 const built = meshBase + file;
                 const fullPath = (dndActive || dndSavedPathToUrl) ? built.replace(/^\/+/, '') : built;
