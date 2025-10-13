@@ -48,6 +48,14 @@ const jointListEl = document.getElementById('joint-list');
 let currentUrl = null;
 let jointNameToGroup = new Map();
 let jointAngles = new Map();
+let jointNameToUI = new Map();
+
+// Picking state
+const raycaster = new THREE.Raycaster();
+const pointer = new THREE.Vector2();
+let isDraggingJoint = false;
+let activeJointName = null;
+let lastPointer = { x: 0, y: 0 };
 
 // Helpers
 function parseVec(str, expected) {
@@ -278,6 +286,14 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
             jointNameToGroup.set(jname, { pivot, type, axis: new THREE.Vector3(axis[0], axis[1], axis[2]), range });
             jointAngles.set(jname, 0);
 
+            // Visible handle to allow picking in the 3D view
+            const handle = new THREE.Mesh(
+                new THREE.SphereGeometry(0.02, 12, 12),
+                new THREE.MeshBasicMaterial({ color: 0x00bcd4, transparent: true, opacity: 0.25 })
+            );
+            handle.userData.jointName = jname;
+            pivot.add(handle);
+
             // Next elements attach after this joint
             attachParent = pivot;
 
@@ -341,6 +357,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
 
                 jointListEl.appendChild(li);
                 updateUIFromAngle();
+                jointNameToUI.set(jname, { slider, input, updateUIFromAngle });
             }
         });
         // Attach geoms and children after the last joint pivot so they are affected by rotations
@@ -393,6 +410,8 @@ function setJointValue(name, angle) {
         const q = new THREE.Quaternion().setFromAxisAngle(axis.clone().normalize(), angle);
         pivot.setRotationFromQuaternion(q);
     }
+    const ui = jointNameToUI.get(name);
+    if (ui) ui.updateUIFromAngle();
 }
 
 // Load default model from absolute path under repo root served by static-server
@@ -454,4 +473,43 @@ function animate() {
 }
 animate();
 
+
+
+// 3D joint dragging: click a joint handle, drag left/right to change angle
+function onPointerMove(event) {
+    lastPointer.x = event.clientX;
+    lastPointer.y = event.clientY;
+    if (isDraggingJoint && activeJointName) {
+        // Horizontal delta controls angle change
+        const delta = (event.movementX || 0) * 0.01; // sensitivity
+        const current = jointAngles.get(activeJointName) || 0;
+        setJointValue(activeJointName, current + delta);
+    }
+}
+
+function onPointerDown(event) {
+    pointer.x = (event.clientX / renderer.domElement.clientWidth) * 2 - 1;
+    pointer.y = -(event.clientY / renderer.domElement.clientHeight) * 2 + 1;
+    raycaster.setFromCamera(pointer, camera);
+    const intersects = raycaster.intersectObject(worldRoot, true);
+    const hit = intersects.find(i => i.object.userData && i.object.userData.jointName);
+    if (hit) {
+        isDraggingJoint = true;
+        activeJointName = hit.object.userData.jointName;
+        renderer.domElement.style.cursor = 'grabbing';
+        controls.enabled = false;
+    }
+}
+
+function onPointerUp() {
+    isDraggingJoint = false;
+    activeJointName = null;
+    renderer.domElement.style.cursor = '';
+    controls.enabled = true;
+}
+
+renderer.domElement.addEventListener('pointermove', onPointerMove);
+renderer.domElement.addEventListener('pointerdown', onPointerDown);
+renderer.domElement.addEventListener('pointerup', onPointerUp);
+renderer.domElement.addEventListener('mouseleave', onPointerUp);
 
