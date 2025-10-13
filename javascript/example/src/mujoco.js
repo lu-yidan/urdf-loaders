@@ -2,6 +2,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { STLLoader } from 'three/examples/jsm/loaders/STLLoader.js';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader.js';
 
 const rootEl = document.getElementById('viewer-root');
 
@@ -41,6 +42,7 @@ scene.add(worldRoot);
 
 // UI elements
 const flipToggle = document.getElementById('flip-visual');
+const collisionToggle = document.getElementById('collision-toggle');
 let currentUrl = null;
 
 // Helpers
@@ -69,7 +71,20 @@ function makeMaterial(hex) {
     return new THREE.MeshStandardMaterial({ color: hex || 0x9db1cc, roughness: 0.6, metalness: 0.0 });
 }
 
+function shouldRenderGeom(geomEl) {
+    // Heuristic: treat contype/conaffinity group flags as collision if nonzero
+    const contype = geomEl.getAttribute('contype');
+    const conaff = geomEl.getAttribute('conaffinity');
+    // In MuJoCo defaults, if not specified: contype=1, conaffinity=1 (i.e., colliding)
+    const unspecifiedMeansCollision = contype === null && conaff === null;
+    const explicitCollision = (contype && contype !== '0') || (conaff && conaff !== '0');
+    const isCollision = unspecifiedMeansCollision || explicitCollision;
+    if (collisionToggle && !collisionToggle.classList.contains('checked') && isCollision) return false;
+    return true;
+}
+
 function addGeom(parent, geomEl, extraRotationX = 0) {
+    if (!shouldRenderGeom(geomEl)) return;
     const type = geomEl.getAttribute('type') || 'box';
     const fromto = parseVec(geomEl.getAttribute('fromto'));
     const size = parseVec(geomEl.getAttribute('size'));
@@ -139,8 +154,12 @@ function buildBody(bodyEl) {
     return group;
 }
 
-async function loadMuJoCoXml(url) {
+async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     currentUrl = url;
+    // Snapshot current camera state if we need to preserve
+    const savedCamPos = camera.position.clone();
+    const savedTarget = controls.target.clone();
+    const savedQuat = camera.quaternion.clone();
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
     const text = await res.text();
@@ -174,24 +193,45 @@ async function loadMuJoCoXml(url) {
     // Extend addGeom to handle mesh types using STLLoader
     const loaderManager = new THREE.LoadingManager();
     const stlLoader = new STLLoader(loaderManager);
+    const objLoader = new OBJLoader(loaderManager);
 
     function addGeomWithAssets(parent, geomEl) {
         const type = geomEl.getAttribute('type') || 'box';
         if (type === 'mesh') {
+            if (!shouldRenderGeom(geomEl)) return;
             const meshName = geomEl.getAttribute('mesh');
             const file = meshName ? assetMeshes.get(meshName) : null;
             if (file) {
                 const fullPath = meshBase + file;
-                stlLoader.load(fullPath, geometry => {
-                    geometry.computeVertexNormals();
-                    const mesh = new THREE.Mesh(geometry, makeMaterial(0xbdbdbd));
-                    const pos = parseVec(geomEl.getAttribute('pos')) || [0, 0, 0];
-                    const q = parseQuatWxyz(geomEl.getAttribute('quat'));
-                    mesh.position.set(pos[0], pos[1], pos[2]);
-                    if (q) mesh.quaternion.multiply(q);
-                    if (flipToggle?.classList.contains('checked')) mesh.rotateX(Math.PI / 2);
-                    parent.add(mesh);
-                });
+                const ext = fullPath.split('.').pop().toLowerCase();
+                if (ext === 'stl') {
+                    stlLoader.load(fullPath, geometry => {
+                        geometry.computeVertexNormals();
+                        const mesh = new THREE.Mesh(geometry, makeMaterial(0xbdbdbd));
+                        const pos = parseVec(geomEl.getAttribute('pos')) || [0, 0, 0];
+                        const q = parseQuatWxyz(geomEl.getAttribute('quat'));
+                        mesh.position.set(pos[0], pos[1], pos[2]);
+                        if (q) mesh.quaternion.multiply(q);
+                        if (flipToggle?.classList.contains('checked')) mesh.rotateX(Math.PI / 2);
+                        parent.add(mesh);
+                    });
+                } else if (ext === 'obj') {
+                    objLoader.load(fullPath, object => {
+                        // Apply a default material to OBJ if missing
+                        object.traverse(c => {
+                            if (c.isMesh && !c.material) c.material = makeMaterial(0xbdbdbd);
+                        });
+                        const pos = parseVec(geomEl.getAttribute('pos')) || [0, 0, 0];
+                        const q = parseQuatWxyz(geomEl.getAttribute('quat'));
+                        object.position.set(pos[0], pos[1], pos[2]);
+                        if (q) object.quaternion.multiply(q);
+                        if (flipToggle?.classList.contains('checked')) object.rotateX(Math.PI / 2);
+                        parent.add(object);
+                    });
+                } else {
+                    // Unsupported mesh type, fallback small box
+                    addGeom(parent, geomEl, flipToggle?.classList.contains('checked') ? Math.PI / 2 : 0);
+                }
                 return;
             }
         }
@@ -220,19 +260,28 @@ async function loadMuJoCoXml(url) {
 
     worldRoot.add(root);
 
-    // Fit camera
-    const box = new THREE.Box3().setFromObject(root);
-    const size = new THREE.Vector3();
-    box.getSize(size);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-    controls.target.copy(center);
-    const radius = Math.max(size.x, size.y, size.z) * 0.6 + 0.5;
-    camera.position.copy(center.clone().add(new THREE.Vector3(radius, radius, radius)));
-    camera.near = Math.max(0.01, radius / 100);
-    camera.far = radius * 100;
-    camera.updateProjectionMatrix();
-    controls.update();
+    if (preserveView) {
+        // Restore previous camera and target
+        camera.position.copy(savedCamPos);
+        camera.quaternion.copy(savedQuat);
+        controls.target.copy(savedTarget);
+        camera.updateProjectionMatrix();
+        controls.update();
+    } else {
+        // Fit camera to new content
+        const box = new THREE.Box3().setFromObject(root);
+        const size = new THREE.Vector3();
+        box.getSize(size);
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        controls.target.copy(center);
+        const radius = Math.max(size.x, size.y, size.z) * 0.6 + 0.5;
+        camera.position.copy(center.clone().add(new THREE.Vector3(radius, radius, radius)));
+        camera.near = Math.max(0.01, radius / 100);
+        camera.far = radius * 100;
+        camera.updateProjectionMatrix();
+        controls.update();
+    }
 }
 
 // Load default model from absolute path under repo root served by static-server
@@ -253,7 +302,14 @@ document.querySelectorAll('#mj-options li[data-xml]').forEach(li => {
 if (flipToggle) {
     flipToggle.addEventListener('click', () => {
         flipToggle.classList.toggle('checked');
-        if (currentUrl) loadMuJoCoXml(currentUrl).catch(err => console.error(err));
+        if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
+    });
+}
+
+if (collisionToggle) {
+    collisionToggle.addEventListener('click', () => {
+        collisionToggle.classList.toggle('checked');
+        if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
     });
 }
 
