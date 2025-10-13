@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <meta charset="utf-8"/>
+
+        <title>MuJoCo XML Viewer</title>
+
+        <link href="https://fonts.googleapis.com/css?family=Roboto:100,300" rel="stylesheet"/>
+        <link href="./styles.css" type="text/css" rel="stylesheet" />
+    </head>
+    <body tabindex="0">
+        <div id="menu">
+            <ul id="mj-options">
+                <li data-xml="/mujoco/humanoid.xml" color="#3F51B5">humanoid.xml</li>
+                <li data-xml="/mujoco/g1/g1.xml" color="#009688">g1.xml</li>
+            </ul>
+            <div id="controls">
+                <div id="toggle-controls"></div>
+                <div>Use mouse to orbit, right-drag to pan, wheel to zoom.</div>
+                <div id="flip-visual" class="toggle">Flip visual attachments (+90° X)</div>
+            </div>
+        </div>
+
+        <div id="viewer-root"></div>
+
+        <script src="./src/mujoco.js"></script>
+    </body>
+    </html>
+
+
