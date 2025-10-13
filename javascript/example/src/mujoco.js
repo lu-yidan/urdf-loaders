@@ -43,7 +43,11 @@ scene.add(worldRoot);
 // UI elements
 const flipToggle = document.getElementById('flip-visual');
 const collisionToggle = document.getElementById('collision-toggle');
+const radiansToggle = document.getElementById('radians-toggle');
+const jointListEl = document.getElementById('joint-list');
 let currentUrl = null;
+let jointNameToGroup = new Map();
+let jointAngles = new Map();
 
 // Helpers
 function parseVec(str, expected) {
@@ -173,6 +177,8 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     // Resolve mesh base path from compiler meshdir and XML url
     const compiler = doc.querySelector('mujoco > compiler');
     const meshdir = compiler?.getAttribute('meshdir') || '';
+    const angleUnit = (compiler?.getAttribute('angle') || 'degree').toLowerCase();
+    const xmlAnglesAreRadians = angleUnit === 'radian';
     const urlObj = new URL(url, window.location.origin);
     const xmlDir = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
     const meshBase = (xmlDir + meshdir).replace(/\/+$/, '/')
@@ -239,16 +245,109 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
         addGeom(parent, geomEl, flipToggle?.classList.contains('checked') ? Math.PI / 2 : 0);
     }
 
+    // Reset joint state/UI
+    jointNameToGroup = new Map();
+    jointAngles = new Map();
+    if (jointListEl) jointListEl.innerHTML = '';
+
     // World geoms (e.g., floor)
     world.querySelectorAll(':scope > geom').forEach(geom => addGeomWithAssets(root, geom));
     // Bodies
     function buildBodyWithAssets(bodyEl) {
         const group = new THREE.Group();
         applyBodyTransform(group, bodyEl);
-        bodyEl.querySelectorAll(':scope > geom').forEach(geom => addGeomWithAssets(group, geom));
+
+        // Build a chain of pivots if multiple joints exist on this body
+        let attachParent = group;
+        bodyEl.querySelectorAll(':scope > joint').forEach(jEl => {
+            const jname = jEl.getAttribute('name') || '';
+            const type = jEl.getAttribute('type') || 'hinge';
+            const axis = parseVec(jEl.getAttribute('axis')) || [0, 0, 1];
+            const rawRange = parseVec(jEl.getAttribute('range')) || null;
+            let range = null;
+            if (rawRange && rawRange.length >= 2) {
+                if (xmlAnglesAreRadians) range = [parseFloat(rawRange[0]), parseFloat(rawRange[1])];
+                else range = [parseFloat(rawRange[0]) * (Math.PI / 180), parseFloat(rawRange[1]) * (Math.PI / 180)];
+            }
+            const jpos = parseVec(jEl.getAttribute('pos')) || [0, 0, 0];
+
+            // Create a pivot object for rotation/translation at joint position
+            const pivot = new THREE.Group();
+            pivot.position.set(jpos[0], jpos[1], jpos[2]);
+            attachParent.add(pivot);
+            jointNameToGroup.set(jname, { pivot, type, axis: new THREE.Vector3(axis[0], axis[1], axis[2]), range });
+            jointAngles.set(jname, 0);
+
+            // Next elements attach after this joint
+            attachParent = pivot;
+
+            // Add UI row
+            if (jointListEl && jname) {
+                const li = document.createElement('li');
+                li.setAttribute('joint-name', jname);
+                li.innerHTML = `
+                    <span title="${ jname }">${ jname }</span>
+                    <input type="range" value="0" step="0.0001"/>
+                    <input type="number" step="0.0001" />
+                `;
+                const slider = li.querySelector('input[type="range"]');
+                const input = li.querySelector('input[type="number"]');
+
+                const updateUIFromAngle = () => {
+                    let angle = jointAngles.get(jname) || 0;
+                    const useRad = radiansToggle && radiansToggle.classList.contains('checked');
+                    const display = useRad ? angle : angle * (180 / Math.PI);
+                    slider.value = angle;
+                    input.value = display;
+                    // Limits if provided (range already in radians)
+                    if (range && type === 'hinge') {
+                        const min = range[0];
+                        const max = range[1];
+                        slider.min = min;
+                        slider.max = max;
+                        if (!useRad) {
+                            input.min = min * (180 / Math.PI);
+                            input.max = max * (180 / Math.PI);
+                        } else {
+                            input.min = min;
+                            input.max = max;
+                        }
+                    } else {
+                        slider.min = -Math.PI;
+                        slider.max = Math.PI;
+                        if (!useRad) {
+                            input.min = -180;
+                            input.max = 180;
+                        } else {
+                            input.min = -Math.PI;
+                            input.max = Math.PI;
+                        }
+                    }
+                };
+
+                slider.addEventListener('input', () => {
+                    const angle = parseFloat(slider.value);
+                    setJointValue(jname, angle);
+                    updateUIFromAngle();
+                });
+
+                input.addEventListener('change', () => {
+                    const useRad = radiansToggle && radiansToggle.classList.contains('checked');
+                    const val = parseFloat(input.value);
+                    const angle = useRad ? val : val * (Math.PI / 180);
+                    setJointValue(jname, angle);
+                    updateUIFromAngle();
+                });
+
+                jointListEl.appendChild(li);
+                updateUIFromAngle();
+            }
+        });
+        // Attach geoms and children after the last joint pivot so they are affected by rotations
+        bodyEl.querySelectorAll(':scope > geom').forEach(geom => addGeomWithAssets(attachParent, geom));
         bodyEl.querySelectorAll(':scope > body').forEach(child => {
             const childGroup = buildBodyWithAssets(child);
-            group.add(childGroup);
+            attachParent.add(childGroup);
         });
         return group;
     }
@@ -284,6 +383,18 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     }
 }
 
+function setJointValue(name, angle) {
+    const entry = jointNameToGroup.get(name);
+    if (!entry) return;
+    jointAngles.set(name, angle);
+    if (entry.type === 'hinge') {
+        // Rotate pivot about joint axis in local space
+        const { pivot, axis } = entry;
+        const q = new THREE.Quaternion().setFromAxisAngle(axis.clone().normalize(), angle);
+        pivot.setRotationFromQuaternion(q);
+    }
+}
+
 // Load default model from absolute path under repo root served by static-server
 const defaultUrl = '/mujoco/humanoid.xml';
 loadMuJoCoXml(defaultUrl).catch(err => {
@@ -310,6 +421,21 @@ if (collisionToggle) {
     collisionToggle.addEventListener('click', () => {
         collisionToggle.classList.toggle('checked');
         if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
+    });
+}
+
+if (radiansToggle) {
+    radiansToggle.addEventListener('click', () => {
+        radiansToggle.classList.toggle('checked');
+        // Refresh joint number inputs to convert between deg/rad
+        jointListEl?.querySelectorAll('li[joint-name]')?.forEach(li => {
+            const name = li.getAttribute('joint-name');
+            const slider = li.querySelector('input[type="range"]');
+            const input = li.querySelector('input[type="number"]');
+            const angle = jointAngles.get(name) || 0;
+            const useRad = radiansToggle.classList.contains('checked');
+            input.value = useRad ? angle : angle * (180 / Math.PI);
+        });
     });
 }
 
