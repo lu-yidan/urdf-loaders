@@ -43,6 +43,11 @@ scene.add(worldRoot);
 // UI elements
 const flipToggle = document.getElementById('flip-visual');
 const collisionToggle = document.getElementById('collision-toggle');
+const collisionOnlyToggle = document.getElementById('collision-only');
+function isCapsuleMode() {
+    const el = document.getElementById('capsule-mode');
+    return !!(el && el.classList.contains('checked'));
+}
 const radiansToggle = document.getElementById('radians-toggle');
 const jointListEl = document.getElementById('joint-list');
 let currentUrl = null;
@@ -211,14 +216,19 @@ function shouldRenderGeom(geomEl) {
     // - if completely unspecified AND type is mesh => visual; primitives default collision only if contype>0
     const cls = (geomEl.getAttribute('class') || '').toLowerCase();
     if (/collision/.test(cls)) {
+        if (collisionOnlyToggle && collisionOnlyToggle.classList.contains('checked')) return true;
         if (collisionToggle && !collisionToggle.classList.contains('checked')) return false;
         return true;
     }
-    if (/visual/.test(cls)) return true;
+    if (/visual/.test(cls)) {
+        if (collisionOnlyToggle && collisionOnlyToggle.classList.contains('checked')) return false;
+        return true;
+    }
 
     const contype = geomEl.getAttribute('contype');
     if (contype !== null) {
         const isCollision = parseInt(contype, 10) !== 0;
+        if (collisionOnlyToggle && collisionOnlyToggle.classList.contains('checked')) return isCollision;
         if (collisionToggle && !collisionToggle.classList.contains('checked') && isCollision) return false;
         return true;
     }
@@ -226,8 +236,9 @@ function shouldRenderGeom(geomEl) {
     const t = (geomEl.getAttribute('type') || '').toLowerCase();
     const hasMeshAttr = geomEl.getAttribute('mesh') != null;
     const isMesh = t === 'mesh' || (!t && hasMeshAttr);
-    if (isMesh) return true;
+    if (isMesh) return !(collisionOnlyToggle && collisionOnlyToggle.classList.contains('checked'));
     // primitive without explicit flags -> treat as collision
+    if (collisionOnlyToggle && collisionOnlyToggle.classList.contains('checked')) return true;
     if (collisionToggle && !collisionToggle.classList.contains('checked')) return false;
     return true;
 }
@@ -269,13 +280,31 @@ function addGeom(parent, geomEl, extraRotationX = 0) {
             mesh.quaternion.copy(quat);
         }
     } else if (type === 'box') {
-        // MuJoCo size for box are half-sizes (hx hy hz)
-        const hx = size ? size[0] : 0.05;
-        const hy = size ? (size[1] ?? hx) : hx;
-        const hz = size ? (size[2] ?? hx) : hy;
-        const geo = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
-        mesh = new THREE.Mesh(geo, makeMaterial());
-        mesh.position.set(pos[0], pos[1], pos[2]);
+        const cls = (geomEl.getAttribute('class') || '').toLowerCase();
+        if (isCapsuleMode() && /collision/.test(cls)) {
+            // Box -> capsule proxy along the longest axis
+            const hx = size ? size[0] : 0.05;
+            const hy = size ? (size[1] ?? hx) : hx;
+            const hz = size ? (size[2] ?? hx) : hy;
+            const dims = [hx, hy, hz];
+            const maxIdx = dims.indexOf(Math.max(...dims));
+            const axisLen = dims[maxIdx] * 2;
+            const radius = Math.min(...dims.filter((_, i) => i !== maxIdx));
+            const straightLen = Math.max(0.0, axisLen - 2 * radius);
+            const geo = new THREE.CapsuleGeometry(radius, straightLen, 8, 16);
+            mesh = new THREE.Mesh(geo, makeMaterial());
+            mesh.position.set(pos[0], pos[1], pos[2]);
+            if (maxIdx === 0) mesh.rotateZ(Math.PI / 2);
+            if (maxIdx === 2) mesh.rotateX(Math.PI / 2);
+        } else {
+            // Regular box
+            const hx = size ? size[0] : 0.05;
+            const hy = size ? (size[1] ?? hx) : hx;
+            const hz = size ? (size[2] ?? hx) : hy;
+            const geo = new THREE.BoxGeometry(hx * 2, hy * 2, hz * 2);
+            mesh = new THREE.Mesh(geo, makeMaterial());
+            mesh.position.set(pos[0], pos[1], pos[2]);
+        }
     } else {
         // Fallback: small box
         const geo = new THREE.BoxGeometry(0.05, 0.05, 0.05);
@@ -695,6 +724,23 @@ if (collisionToggle) {
         }
         if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
     });
+}
+
+if (collisionOnlyToggle) {
+    collisionOnlyToggle.addEventListener('click', () => {
+        collisionOnlyToggle.classList.toggle('checked');
+        if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
+    });
+}
+
+{
+    const cmToggle = document.getElementById('capsule-mode');
+    if (cmToggle) {
+        cmToggle.addEventListener('click', () => {
+            cmToggle.classList.toggle('checked');
+            if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
+        });
+    }
 }
 
 if (radiansToggle) {
