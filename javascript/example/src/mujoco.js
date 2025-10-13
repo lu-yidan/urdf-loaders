@@ -39,6 +39,10 @@ const worldRoot = new THREE.Group();
 worldRoot.rotation.x = -Math.PI / 2;
 scene.add(worldRoot);
 
+// UI elements
+const flipToggle = document.getElementById('flip-visual');
+let currentUrl = null;
+
 // Helpers
 function parseVec(str, expected) {
     if (!str) return null;
@@ -136,6 +140,7 @@ function buildBody(bodyEl) {
 }
 
 async function loadMuJoCoXml(url) {
+    currentUrl = url;
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
     const text = await res.text();
@@ -170,7 +175,6 @@ async function loadMuJoCoXml(url) {
     const loaderManager = new THREE.LoadingManager();
     const stlLoader = new STLLoader(loaderManager);
 
-    const flipToggle = document.getElementById('flip-visual');
     function addGeomWithAssets(parent, geomEl) {
         const type = geomEl.getAttribute('type') || 'box';
         if (type === 'mesh') {
@@ -244,6 +248,14 @@ document.querySelectorAll('#mj-options li[data-xml]').forEach(li => {
         loadMuJoCoXml(url).catch(err => console.error(err));
     });
 });
+
+// Flip toggle wiring: toggle class and reload current model
+if (flipToggle) {
+    flipToggle.addEventListener('click', () => {
+        flipToggle.classList.toggle('checked');
+        if (currentUrl) loadMuJoCoXml(currentUrl).catch(err => console.error(err));
+    });
+}
 
 // Resize handling
 function onResize() {
