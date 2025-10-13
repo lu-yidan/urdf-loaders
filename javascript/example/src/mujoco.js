@@ -312,8 +312,40 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const savedQuat = camera.quaternion.clone();
     const res = await fetch(url);
     if (!res.ok) throw new Error(`Failed to fetch ${url}: ${res.status}`);
-    const text = await res.text();
-    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    const baseUrl = new URL(url, window.location.origin);
+
+    let assetsBasePath = null;
+    async function resolveIncludes(xmlText, base) {
+        const doc = new DOMParser().parseFromString(xmlText, 'application/xml');
+        const includes = Array.from(doc.querySelectorAll('include[file]'));
+        for (const inc of includes) {
+            const fileAttr = inc.getAttribute('file');
+            const includeUrl = new URL(fileAttr, base);
+            const r = await fetch(includeUrl.toString());
+            if (!r.ok) continue;
+            const subText = await r.text();
+            const subResolved = await resolveIncludes(subText, includeUrl);
+            const subDoc = new DOMParser().parseFromString(subResolved, 'application/xml');
+            const fragRoot = subDoc.documentElement;
+            // Import children of the included root into current doc at inc position
+            const parent = inc.parentNode;
+            const imported = Array.from(fragRoot.childNodes).map(n => doc.importNode(n, true));
+            imported.forEach(n => parent.insertBefore(n, inc));
+            parent.removeChild(inc);
+
+            // Remember base path for assets.xml for relative mesh file resolution
+            const incPath = includeUrl.pathname;
+            if (/assets\.xml$/i.test(incPath)) {
+                assetsBasePath = incPath.substring(0, incPath.lastIndexOf('/') + 1);
+            }
+        }
+        const serializer = new XMLSerializer();
+        return serializer.serializeToString(doc);
+    }
+
+    const rawText = await res.text();
+    const resolvedText = await resolveIncludes(rawText, baseUrl);
+    const doc = new DOMParser().parseFromString(resolvedText, 'application/xml');
     const err = doc.querySelector('parsererror');
     if (err) throw new Error('XML parse error');
 
@@ -326,7 +358,9 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const angleUnit = (compiler?.getAttribute('angle') || 'degree').toLowerCase();
     const xmlAnglesAreRadians = angleUnit === 'radian';
     let meshBase;
-    if (dndActive && dndRootDir) {
+    if (assetsBasePath) {
+        meshBase = assetsBasePath;
+    } else if (dndActive && dndRootDir) {
         const root = dndRootDir.replace(/\/+$/, '/');
         const md = (meshdir || '').replace(/^\/+/, '');
         meshBase = (root + (md ? md + '/' : '')).replace(/\/+/g, '/');
