@@ -3,6 +3,7 @@ name: Deploy Pages
 on:
   push:
     branches: [ lu_mujoco_dev ]
+  workflow_dispatch:
 
 permissions:
   contents: read
