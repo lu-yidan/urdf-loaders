@@ -57,6 +57,111 @@ let isDraggingJoint = false;
 let activeJointName = null;
 let lastPointer = { x: 0, y: 0 };
 
+// Drag-and-drop global context
+let dndActive = false;
+let dndPathToUrl = null;
+let dndRootDir = '';
+let dndSavedPathToUrl = null;
+let dndSavedRootDir = '';
+
+// Drag-and-drop support: accept a folder or files; find one .xml (MuJoCo) and load assets via blob URLs
+async function handleDropItems(items) {
+    const fileEntries = [];
+    // Traverse DataTransferItemList, supporting directories (webkitGetAsEntry)
+    async function traverseEntry(entry, pathPrefix = '') {
+        return new Promise(resolve => {
+            if (entry.isFile) {
+                entry.file(file => resolve([{ path: pathPrefix + entry.name, file }]));
+                return;
+            }
+            if (entry.isDirectory) {
+                const dirReader = entry.createReader();
+                const all = [];
+                const readBatch = () => {
+                    dirReader.readEntries(async entries => {
+                        if (!entries.length) {
+                            resolve(all);
+                            return;
+                        }
+                        const nested = (await Promise.all(entries.map(e => traverseEntry(e, pathPrefix + entry.name + '/')))).flat();
+                        all.push(...nested);
+                        // Continue reading until empty per FileSystemDirectoryReader contract
+                        readBatch();
+                    });
+                };
+                readBatch();
+                return;
+            }
+            resolve([]);
+        });
+    }
+
+    const entries = [];
+    for (let i = 0; i < items.length; i++) {
+        const it = items[i];
+        const entry = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
+        if (entry) entries.push(entry);
+    }
+    const collected = (await Promise.all(entries.map(e => traverseEntry(e)))).flat();
+    fileEntries.push(...collected);
+
+    if (fileEntries.length === 0) return;
+    // Find a .xml as root
+    const xmlEntry = fileEntries.find(e => /\.xml$/i.test(e.path));
+    if (!xmlEntry) return;
+
+    // Build a virtual file map path->blobURL
+    const pathToUrl = new Map();
+    await Promise.all(fileEntries.map(async ({ path, file }) => {
+        const norm = path.replace(/^\/+/, '');
+        pathToUrl.set(norm, URL.createObjectURL(file));
+    }));
+
+    // Loader wrapper to fetch from map when path matches
+    const originalFetch = window.fetch;
+    window.fetch = (input, init) => {
+        try {
+            const url = typeof input === 'string' ? input : input.url;
+            const u = new URL(url, window.location.origin);
+            // Use pathname relative match: try exact, and try without leading '/'
+            const pn = u.pathname.replace(/^\/+/, '');
+            let rel = pn;
+            // If the path contains the dropped root dir, strip prefix up to root
+            if (dndRootDir) {
+                const idx = pn.indexOf(dndRootDir.replace(/^\/+/, ''));
+                if (idx >= 0) rel = pn.substring(idx);
+            }
+            const candidates = [rel, pn];
+            for (const key of candidates) {
+                if (pathToUrl.has(key)) return originalFetch(pathToUrl.get(key), init);
+            }
+        } catch (e) {}
+        return originalFetch(input, init);
+    };
+
+    // Resolve root XML url
+    const xmlUrl = pathToUrl.get(xmlEntry.path.replace(/^\//, ''));
+    if (!xmlUrl) return;
+    // Set DnD context for subsequent asset path resolution
+    dndActive = true;
+    dndPathToUrl = pathToUrl;
+    dndRootDir = xmlEntry.path.replace(/^\//, '').replace(/[^/]+$/, '');
+
+    // Expose a restore hook; defer restoration until loaders finish
+    window.__dndFetchRestore = () => {
+        window.fetch = originalFetch;
+        // Keep DnD mapping for subsequent reloads (e.g., Show Collision toggle)
+        dndActive = true;
+        dndSavedPathToUrl = pathToUrl;
+        dndSavedRootDir = xmlEntry.path.replace(/^\//, '').replace(/[^/]+$/, '');
+        dndPathToUrl = pathToUrl;
+        dndRootDir = dndSavedRootDir;
+        window.__dndFetchRestore = null;
+    };
+
+    await loadMuJoCoXml(xmlUrl).catch(console.error);
+}
+
 // Helpers
 function parseVec(str, expected) {
     if (!str) return null;
@@ -84,20 +189,37 @@ function makeMaterial(hex) {
 }
 
 function shouldRenderGeom(geomEl) {
-    // Heuristic: treat contype/conaffinity group flags as collision if nonzero
+    // Heuristic:
+    // - class contains 'collision' => collision; 'visual' => visual
+    // - contype explicitly 0 => visual; >0 => collision
+    // - if completely unspecified AND type is mesh => visual; primitives default collision only if contype>0
+    const cls = (geomEl.getAttribute('class') || '').toLowerCase();
+    if (/collision/.test(cls)) {
+        if (collisionToggle && !collisionToggle.classList.contains('checked')) return false;
+        return true;
+    }
+    if (/visual/.test(cls)) return true;
+
     const contype = geomEl.getAttribute('contype');
-    const conaff = geomEl.getAttribute('conaffinity');
-    // In MuJoCo defaults, if not specified: contype=1, conaffinity=1 (i.e., colliding)
-    const unspecifiedMeansCollision = contype === null && conaff === null;
-    const explicitCollision = (contype && contype !== '0') || (conaff && conaff !== '0');
-    const isCollision = unspecifiedMeansCollision || explicitCollision;
-    if (collisionToggle && !collisionToggle.classList.contains('checked') && isCollision) return false;
+    if (contype !== null) {
+        const isCollision = parseInt(contype, 10) !== 0;
+        if (collisionToggle && !collisionToggle.classList.contains('checked') && isCollision) return false;
+        return true;
+    }
+    // Default: meshes => visual; primitives => collision by default
+    const t = (geomEl.getAttribute('type') || '').toLowerCase();
+    const hasMeshAttr = geomEl.getAttribute('mesh') != null;
+    const isMesh = t === 'mesh' || (!t && hasMeshAttr);
+    if (isMesh) return true;
+    // primitive without explicit flags -> treat as collision
+    if (collisionToggle && !collisionToggle.classList.contains('checked')) return false;
     return true;
 }
 
 function addGeom(parent, geomEl, extraRotationX = 0) {
     if (!shouldRenderGeom(geomEl)) return;
-    const type = geomEl.getAttribute('type') || 'box';
+    let type = geomEl.getAttribute('type') || 'box';
+    if (!geomEl.getAttribute('type') && geomEl.getAttribute('mesh')) type = 'mesh';
     const fromto = parseVec(geomEl.getAttribute('fromto'));
     const size = parseVec(geomEl.getAttribute('size'));
     const pos = parseVec(geomEl.getAttribute('pos')) || [0, 0, 0];
@@ -187,10 +309,14 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const meshdir = compiler?.getAttribute('meshdir') || '';
     const angleUnit = (compiler?.getAttribute('angle') || 'degree').toLowerCase();
     const xmlAnglesAreRadians = angleUnit === 'radian';
-    const urlObj = new URL(url, window.location.origin);
-    const xmlDir = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
-    const meshBase = (xmlDir + meshdir).replace(/\/+$/, '/')
-        .replace(/\/+/g, '/');
+    let meshBase;
+    if (dndActive && dndRootDir) {
+        meshBase = (dndRootDir + meshdir).replace(/^\/+/, '').replace(/\/+$/, '/').replace(/\/+/g, '/');
+    } else {
+        const urlObj = new URL(url, window.location.origin);
+        const xmlDir = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+        meshBase = (xmlDir + meshdir).replace(/\/+$/, '/').replace(/\/+/g, '/');
+    }
 
     // Asset meshes map name->file
     const assetMeshes = new Map();
@@ -205,18 +331,46 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     root.name = 'mj-root';
 
     // Extend addGeom to handle mesh types using STLLoader
-    const loaderManager = new THREE.LoadingManager();
+    const loaderManager = new THREE.LoadingManager(() => {
+        // All assets finished
+        if (window.__dndFetchRestore) window.__dndFetchRestore();
+    });
+
+    // When loading from drag-and-drop, rewrite loader URLs to blob URLs using our map
+    const urlMap = dndActive ? dndPathToUrl : (dndSavedPathToUrl || null);
+    const mapRoot = dndActive ? dndRootDir : (dndSavedRootDir || '');
+    if (urlMap) {
+        loaderManager.setURLModifier((url) => {
+            try {
+                const u = new URL(url, window.location.origin);
+                const pn = u.pathname.replace(/^\/+/, '');
+                let rel = pn;
+                if (mapRoot) {
+                    const idx = pn.lastIndexOf(mapRoot.replace(/^\/+/, ''));
+                    if (idx >= 0) rel = pn.substring(idx);
+                }
+                // Try exact, and without leading slashes
+                const candidates = [rel, pn, rel.replace(/^\/+/, ''), pn.replace(/^\/+/, '')];
+                for (const key of candidates) {
+                    if (urlMap.has(key)) return urlMap.get(key);
+                }
+            } catch (e) {}
+            return url;
+        });
+    }
     const stlLoader = new STLLoader(loaderManager);
     const objLoader = new OBJLoader(loaderManager);
 
     function addGeomWithAssets(parent, geomEl) {
-        const type = geomEl.getAttribute('type') || 'box';
+        let type = geomEl.getAttribute('type') || 'box';
+        if (!geomEl.getAttribute('type') && geomEl.getAttribute('mesh')) type = 'mesh';
         if (type === 'mesh') {
             if (!shouldRenderGeom(geomEl)) return;
             const meshName = geomEl.getAttribute('mesh');
             const file = meshName ? assetMeshes.get(meshName) : null;
             if (file) {
-                const fullPath = meshBase + file;
+                const built = meshBase + file;
+                const fullPath = (dndActive || dndSavedPathToUrl) ? built.replace(/^\/+/, '') : built;
                 const ext = fullPath.split('.').pop().toLowerCase();
                 if (ext === 'stl') {
                     stlLoader.load(fullPath, geometry => {
@@ -228,6 +382,10 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
                         if (q) mesh.quaternion.multiply(q);
                         if (flipToggle?.classList.contains('checked')) mesh.rotateX(Math.PI / 2);
                         parent.add(mesh);
+                        // If DnD fetch override is active, allow restoration when last asset finishes
+                        if (window.__dndFetchRestore && loaderManager.itemStart) {
+                            // No-op to ensure manager tracks items; actual restoration is handled on manager idle
+                        }
                     });
                 } else if (ext === 'obj') {
                     objLoader.load(fullPath, object => {
@@ -241,9 +399,15 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
                         if (q) object.quaternion.multiply(q);
                         if (flipToggle?.classList.contains('checked')) object.rotateX(Math.PI / 2);
                         parent.add(object);
+                        if (window.__dndFetchRestore && loaderManager.itemStart) {
+                            // same comment as above
+                        }
                     });
+                } else if (ext === 'dae' || ext === 'glb' || ext === 'gltf') {
+                    // Not supported yet via DnD pipeline; skip silently
+                    return;
                 } else {
-                    // Unsupported mesh type, fallback small box
+                    // Fallback small box
                     addGeom(parent, geomEl, flipToggle?.classList.contains('checked') ? Math.PI / 2 : 0);
                 }
                 return;
@@ -439,6 +603,28 @@ if (flipToggle) {
 if (collisionToggle) {
     collisionToggle.addEventListener('click', () => {
         collisionToggle.classList.toggle('checked');
+        // If we loaded via DnD, re-enable fetch mapping for reload to allow asset access
+        if (dndSavedPathToUrl) {
+            const originalFetch = window.fetch;
+            window.fetch = (input, init) => {
+                try {
+                    const url = typeof input === 'string' ? input : input.url;
+                    const u = new URL(url, window.location.origin);
+                    const pn = u.pathname.replace(/^\/+/, '');
+                    let rel = pn;
+                    if (dndSavedRootDir) {
+                        const idx = pn.indexOf(dndSavedRootDir.replace(/^\/+/, ''));
+                        if (idx >= 0) rel = pn.substring(idx);
+                    }
+                    const candidates = [rel, pn];
+                    for (const key of candidates) {
+                        if (dndSavedPathToUrl.has(key)) return originalFetch(dndSavedPathToUrl.get(key), init);
+                    }
+                } catch (e) {}
+                return originalFetch(input, init);
+            };
+            window.__dndFetchRestore = () => { window.fetch = originalFetch; window.__dndFetchRestore = null; };
+        }
         if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
     });
 }
@@ -512,4 +698,13 @@ renderer.domElement.addEventListener('pointermove', onPointerMove);
 renderer.domElement.addEventListener('pointerdown', onPointerDown);
 renderer.domElement.addEventListener('pointerup', onPointerUp);
 renderer.domElement.addEventListener('mouseleave', onPointerUp);
+
+// Hook global drop events to support folder/file drop
+window.addEventListener('drop', async e => {
+    e.preventDefault();
+    if (e.dataTransfer?.items) {
+        await handleDropItems(e.dataTransfer.items);
+    }
+});
+window.addEventListener('dragover', e => e.preventDefault());
 

@@ -30,6 +30,11 @@
         <div id="viewer-root"></div>
 
         <script src="./src/mujoco.js"></script>
+        <script>
+        // Basic drag overlay hint
+        window.addEventListener('dragover', e => { e.preventDefault(); });
+        window.addEventListener('drop', e => { e.preventDefault(); });
+        </script>
     </body>
     </html>
 
