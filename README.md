@@ -10,6 +10,14 @@ URDF loading code in both [C# for Unity](./unity/Assets/URDFLoader/) and [Javasc
 
 The `_flipped` variants of the URDF ATHLETE models invert the revolute joint axes to model ATHLETE in a configuration with the legs attached to the bottom of the chassis.
 
+## MuJoCo XML Viewer (Extended)
+
+This repository now includes an extended web viewer that supports loading and visualizing MuJoCo XML models in addition to URDF. It lives under `javascript/example/mujoco.html` and comes with drag‑and‑drop support for local MuJoCo model folders.
+
+See the usage and deployment guide:
+
+- [`javascript/example/README.mujoco.md`](./javascript/example/README.mujoco.md)
+
 # LICENSE
 
 The software is available under the [Apache V2.0 license](./LICENSE).
