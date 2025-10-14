@@ -50,6 +50,8 @@ function isCapsuleMode() {
 }
 const radiansToggle = document.getElementById('radians-toggle');
 const jointListEl = document.getElementById('joint-list');
+const toggleControlsEl = document.getElementById('toggle-controls');
+const toggleModelsEl = document.getElementById('toggle-models');
 let currentUrl = null;
 let jointNameToGroup = new Map();
 let jointAngles = new Map();
@@ -68,6 +70,100 @@ let dndPathToUrl = null;
 let dndRootDir = '';
 let dndSavedPathToUrl = null;
 let dndSavedRootDir = '';
+
+// Function to bind all event listeners
+function bindEventListeners() {
+    // Remove existing event listeners to prevent duplicates
+    const modelOptions = document.querySelectorAll('#mj-options li');
+    modelOptions.forEach(li => {
+        li.replaceWith(li.cloneNode(true));
+    });
+    
+    // Model selection
+    const newModelOptions = document.querySelectorAll('#mj-options li');
+    newModelOptions.forEach(li => {
+        li.addEventListener('click', () => {
+            const url = li.getAttribute('data-xml');
+            if (url) {
+                loadMuJoCoXml(url);
+            }
+        });
+    });
+
+    // Toggle controls
+    if (toggleControlsEl) {
+        toggleControlsEl.addEventListener('click', () => {
+            const controlContent = document.getElementById('control-content');
+            if (controlContent) {
+                const isHidden = controlContent.style.display === 'none';
+                controlContent.style.display = isHidden ? 'block' : 'none';
+                toggleControlsEl.textContent = isHidden ? 'Hide' : 'Show';
+            }
+        });
+    }
+
+    // Toggle models
+    if (toggleModelsEl) {
+        toggleModelsEl.addEventListener('click', () => {
+            const modelContent = document.getElementById('model-content');
+            if (modelContent) {
+                const isHidden = modelContent.style.display === 'none';
+                modelContent.style.display = isHidden ? 'block' : 'none';
+                toggleModelsEl.textContent = isHidden ? 'Hide' : 'Show';
+            }
+        });
+    }
+
+    // UI toggles
+    if (flipToggle) {
+        flipToggle.addEventListener('click', () => {
+            flipToggle.classList.toggle('checked');
+            if (currentUrl) {
+                loadMuJoCoXml(currentUrl, { preserveView: true });
+            }
+        });
+    }
+
+    if (collisionToggle) {
+        collisionToggle.addEventListener('click', () => {
+            collisionToggle.classList.toggle('checked');
+            if (currentUrl) {
+                loadMuJoCoXml(currentUrl, { preserveView: true });
+            }
+        });
+    }
+
+    if (collisionOnlyToggle) {
+        collisionOnlyToggle.addEventListener('click', () => {
+            collisionOnlyToggle.classList.toggle('checked');
+            if (currentUrl) {
+                loadMuJoCoXml(currentUrl, { preserveView: true });
+            }
+        });
+    }
+
+    const capsuleModeToggle = document.getElementById('capsule-mode');
+    if (capsuleModeToggle) {
+        capsuleModeToggle.addEventListener('click', () => {
+            capsuleModeToggle.classList.toggle('checked');
+            if (currentUrl) {
+                loadMuJoCoXml(currentUrl, { preserveView: true });
+            }
+        });
+    }
+
+    if (radiansToggle) {
+        radiansToggle.addEventListener('click', () => {
+            radiansToggle.classList.toggle('checked');
+            updateJointUI();
+        });
+    }
+}
+
+// Initialize event listeners on page load
+document.addEventListener('DOMContentLoaded', () => {
+    bindEventListeners();
+});
 
 // Drag-and-drop support: accept a folder or files; find one .xml (MuJoCo) and load assets via blob URLs
 async function handleDropItems(items) {
@@ -432,6 +528,8 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const loaderManager = new THREE.LoadingManager(() => {
         // All assets finished
         if (window.__dndFetchRestore) window.__dndFetchRestore();
+    // Re-bind event listeners after drag-and-drop
+    // setTimeout(() => bindEventListeners(), 100);
     });
 
     // When loading from drag-and-drop, rewrite loader URLs to blob URLs using our map
@@ -643,6 +741,9 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     });
 
     worldRoot.add(root);
+
+    // Re-bind event listeners after loading any model
+    // setTimeout(() => bindEventListeners(), 100);
 
     if (preserveView) {
         // Restore previous camera and target

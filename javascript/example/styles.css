@@ -329,13 +329,6 @@ input:focus {
     margin-bottom: 20px;
 }
 
-#model-section h2 {
-    font-size: 16px;
-    font-weight: 300;
-    margin: 0 0 10px 0;
-    color: #fff;
-}
-
 #current-model {
     font-size: 12px;
     color: #4CAF50;
@@ -350,18 +343,43 @@ input:focus {
 }
 
 /* Control section styles */
-#controls h2 {
-    font-size: 16px;
-    font-weight: 300;
-    margin: 0 0 15px 0;
-    color: #fff;
-}
 
 .camera-instructions {
     font-size: 11px;
     color: #888;
     margin-bottom: 15px;
     font-style: italic;
+}
+
+/* Section header styles */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 5px;
+    padding-bottom: 0;
+}
+
+.section-header h2 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 300;
+    color: #fff;
+}
+
+.toggle-section {
+    font-size: 12px;
+    color: #4CAF50;
+    cursor: pointer;
+    padding: 2px 8px;
+    border-radius: 3px;
+    transition: all 0.2s;
+    user-select: none;
+}
+
+.toggle-section:hover {
+    color: #66BB6A;
+    background: rgba(76, 175, 80, 0.1);
 }
 
 /* Update menu background */
