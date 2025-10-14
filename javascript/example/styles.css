@@ -164,14 +164,14 @@ input:focus {
 #controls > * {
     margin: 5px 0;
 }
-
+/* 
 #controls #toggle-controls {
     margin-top: 0;
     margin-bottom: 10px;
     text-align: right;
     transition: 0.1s opacity linear;
     border-top: 1px solid white;
-}
+} */
 
 #controls #toggle-controls:hover {
     text-decoration: underline;
@@ -179,14 +179,14 @@ input:focus {
 }
 
 #controls #toggle-controls:before {
-    content: "hide controls";
+    content: "Controls ";
     font-size: 12px;
     font-weight: normal;
 }
 
 /* hidden state */
 #controls.hidden #toggle-controls:before {
-    content: "show controls";
+    content: "Controls ";
 }
 
 
@@ -358,6 +358,7 @@ input:focus {
     align-items: center;
     margin-bottom: 5px;
     padding-bottom: 0;
+    border: none;
 }
 
 .section-header h2 {
@@ -365,6 +366,7 @@ input:focus {
     font-size: 16px;
     font-weight: 300;
     color: #fff;
+    line-height: 1.2;
 }
 
 .toggle-section {
@@ -375,11 +377,20 @@ input:focus {
     border-radius: 3px;
     transition: all 0.2s;
     user-select: none;
+    line-height: 1.2;
+    margin-top: 0;
 }
 
 .toggle-section:hover {
     color: #66BB6A;
     background: rgba(76, 175, 80, 0.1);
+}
+
+/* Add border to controls section */
+#controls {
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+    padding-top: 15px;
+    margin-top: 15px;
 }
 
 /* Update menu background */

@@ -50,8 +50,9 @@ function isCapsuleMode() {
 }
 const radiansToggle = document.getElementById('radians-toggle');
 const jointListEl = document.getElementById('joint-list');
-const toggleControlsEl = document.getElementById('toggle-controls');
-const toggleModelsEl = document.getElementById('toggle-models');
+// These will be set dynamically in bindEventListeners
+let toggleControlsEl = null;
+let toggleModelsEl = null;
 let currentUrl = null;
 let jointNameToGroup = new Map();
 let jointAngles = new Map();
@@ -90,26 +91,42 @@ function bindEventListeners() {
         });
     });
 
-    // Toggle controls
-    if (toggleControlsEl) {
-        toggleControlsEl.addEventListener('click', () => {
+    // Toggle controls - remove existing listeners first
+    const toggleControls = document.getElementById('toggle-controls');
+    if (toggleControls) {
+        // Clone to remove all event listeners
+        const newToggleControls = toggleControls.cloneNode(true);
+        toggleControls.parentNode.replaceChild(newToggleControls, toggleControls);
+        
+        // Update global variable to point to new element
+        toggleControlsEl = newToggleControls;
+        
+        newToggleControls.addEventListener('click', () => {
             const controlContent = document.getElementById('control-content');
             if (controlContent) {
                 const isHidden = controlContent.style.display === 'none';
                 controlContent.style.display = isHidden ? 'block' : 'none';
-                toggleControlsEl.textContent = isHidden ? 'Hide' : 'Show';
+                newToggleControls.textContent = isHidden ? 'Hide' : 'Show';
             }
         });
     }
 
-    // Toggle models
-    if (toggleModelsEl) {
-        toggleModelsEl.addEventListener('click', () => {
+    // Toggle models - remove existing listeners first
+    const toggleModels = document.getElementById('toggle-models');
+    if (toggleModels) {
+        // Clone to remove all event listeners
+        const newToggleModels = toggleModels.cloneNode(true);
+        toggleModels.parentNode.replaceChild(newToggleModels, toggleModels);
+        
+        // Update global variable to point to new element
+        toggleModelsEl = newToggleModels;
+        
+        newToggleModels.addEventListener('click', () => {
             const modelContent = document.getElementById('model-content');
             if (modelContent) {
                 const isHidden = modelContent.style.display === 'none';
                 modelContent.style.display = isHidden ? 'block' : 'none';
-                toggleModelsEl.textContent = isHidden ? 'Hide' : 'Show';
+                newToggleModels.textContent = isHidden ? 'Hide' : 'Show';
             }
         });
     }
