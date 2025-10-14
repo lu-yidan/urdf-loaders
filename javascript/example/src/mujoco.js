@@ -72,8 +72,8 @@ let dndRootDir = '';
 let dndSavedPathToUrl = null;
 let dndSavedRootDir = '';
 
-// Function to bind all event listeners
-function bindEventListeners() {
+// Function to bind static event listeners (only called once on page load)
+function bindStaticEventListeners() {
     // Model selection
     const modelOptions = document.querySelectorAll('#mj-options li');
     modelOptions.forEach(li => {
@@ -174,9 +174,16 @@ function bindEventListeners() {
     }
 }
 
+// Function to bind dynamic event listeners (called after each model load)
+function bindDynamicEventListeners() {
+    // This function is currently empty, but can be used to bind event listeners
+    // for dynamically generated UI elements (like joint sliders) if needed.
+    // For now, joint sliders are bound directly in buildBodyWithAssets.
+}
+
 // Initialize event listeners on page load
 document.addEventListener('DOMContentLoaded', () => {
-    bindEventListeners();
+    bindStaticEventListeners();
 });
 
 // Drag-and-drop support: accept a folder or files; find one .xml (MuJoCo) and load assets via blob URLs
@@ -255,10 +262,10 @@ async function handleDropItems(items) {
             const url = typeof input === 'string' ? input : input.url;
             const u = new URL(url, window.location.origin);
             // Use pathname relative match: try exact, and try without leading '/'
-            const pn = u.pathname.replace(/^\/+/, '');
+            const pn = String(u.pathname).replace(/^\/+/, '');
             let rel = pn;
             // If the path contains the dropped root dir, strip prefix up to root
-            if (dndRootDir) {
+            if (dndRootDir && typeof pn === 'string') {
                 const idx = pn.indexOf(dndRootDir.replace(/^\/+/, ''));
                 if (idx >= 0) rel = pn.substring(idx);
             }
@@ -446,12 +453,27 @@ function buildBody(bodyEl) {
 async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     currentUrl = url;
     
+    // If loading a server-served model (menu click), disable any DnD URL mapping
+    const isServerModel = typeof url === 'string' && url.startsWith('/');
+    if (isServerModel) {
+        if (window.__dndFetchRestore) {
+            // restore original fetch if it was overridden
+            window.__dndFetchRestore();
+        }
+        dndActive = false;
+        dndPathToUrl = null;
+        dndRootDir = '';
+        dndSavedPathToUrl = null;
+        dndSavedRootDir = '';
+    }
+    
     // Update current model display
     const currentModelEl = document.getElementById('current-model');
     if (currentModelEl) {
         const modelName = url.split('/').pop();
         currentModelEl.textContent = `Current model: ${modelName}`;
     }
+    
     // Snapshot current camera state if we need to preserve
     const savedCamPos = camera.position.clone();
     const savedTarget = controls.target.clone();
@@ -480,7 +502,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
             parent.removeChild(inc);
 
             // Remember base path for assets.xml for relative mesh file resolution
-            const incPath = includeUrl.pathname;
+            const incPath = String(includeUrl.pathname);
             if (/assets\.xml$/i.test(incPath)) {
                 assetsBasePath = incPath.substring(0, incPath.lastIndexOf('/') + 1);
             }
@@ -512,7 +534,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
         meshBase = (root + (md ? md + '/' : '')).replace(/\/+/g, '/');
     } else {
         const urlObj = new URL(url, window.location.origin);
-        const xmlDir = urlObj.pathname.substring(0, urlObj.pathname.lastIndexOf('/') + 1);
+        const xmlDir = String(urlObj.pathname).substring(0, String(urlObj.pathname).lastIndexOf('/') + 1);
         const md = (meshdir || '').replace(/^\/+/, '');
         meshBase = (xmlDir + (md ? md + '/' : '')).replace(/\/+/g, '/');
     }
@@ -524,7 +546,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
         if (!fileAttr) return;
         let key = m.getAttribute('name');
         if (!key) {
-            const parts = fileAttr.split(/[\\\/]/);
+            const parts = fileAttr.split(/[\\\//]/);
             const base = parts[parts.length - 1];
             key = base.replace(/\.[^.]+$/,'');
         }
@@ -542,12 +564,13 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const loaderManager = new THREE.LoadingManager(() => {
         // All assets finished
         if (window.__dndFetchRestore) window.__dndFetchRestore();
-    // Event listeners are bound once on page load
+        // Re-bind dynamic event listeners after loading any model
+        setTimeout(() => bindDynamicEventListeners(), 100);
     });
 
     // When loading from drag-and-drop, rewrite loader URLs to blob URLs using our map
-    const urlMap = dndActive ? dndPathToUrl : (dndSavedPathToUrl || null);
-    const mapRoot = dndActive ? dndRootDir : (dndSavedRootDir || '');
+    const urlMap = dndActive ? dndPathToUrl : null;
+    const mapRoot = dndActive ? dndRootDir : '';
     if (urlMap) {
         loaderManager.setURLModifier((url) => {
             try {
@@ -559,7 +582,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
                 for (const r of roots) {
                     if (!r) continue;
                     const idx = pn.indexOf(String(r).replace(/^\/+/, ''));
-                    if (idx >= 0) { rel = pn.substring(idx); break; }
+                    if (idx >= 0 && typeof pn === 'string') { rel = pn.substring(idx); break; }
                 }
                 // Try exact, and without leading slashes
                 const candidates = [rel, pn, rel.replace(/^\/+/, ''), pn.replace(/^\/+/, '')];
@@ -690,7 +713,8 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
 
                 const updateUIFromAngle = () => {
                     let angle = jointAngles.get(jname) || 0;
-                    const useRad = radiansToggle && radiansToggle.classList.contains('checked');
+                    const radiansToggleEl = document.getElementById('radians-toggle');
+                    const useRad = radiansToggleEl && radiansToggleEl.classList.contains('checked');
                     const display = useRad ? angle : angle * (180 / Math.PI);
                     slider.value = angle;
                     input.value = display;
@@ -727,7 +751,8 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
                 });
 
                 input.addEventListener('change', () => {
-                    const useRad = radiansToggle && radiansToggle.classList.contains('checked');
+                    const radiansToggleEl = document.getElementById('radians-toggle');
+                    const useRad = radiansToggleEl && radiansToggleEl.classList.contains('checked');
                     const val = parseFloat(input.value);
                     const angle = useRad ? val : val * (Math.PI / 180);
                     setJointValue(jname, angle);
@@ -838,7 +863,7 @@ function onPointerMove(event) {
     lastPointer.y = event.clientY;
     if (isDraggingJoint && activeJointName) {
         // Horizontal delta controls angle change
-        const delta = (event.movementX || 0) * 0.01; // sensitivity
+        const delta = (event.movementX || (event.clientX - lastPointer.x)) * 0.01; // sensitivity
         const current = jointAngles.get(activeJointName) || 0;
         setJointValue(activeJointName, current + delta);
     }
