@@ -74,15 +74,9 @@ let dndSavedRootDir = '';
 
 // Function to bind all event listeners
 function bindEventListeners() {
-    // Remove existing event listeners to prevent duplicates
+    // Model selection
     const modelOptions = document.querySelectorAll('#mj-options li');
     modelOptions.forEach(li => {
-        li.replaceWith(li.cloneNode(true));
-    });
-    
-    // Model selection
-    const newModelOptions = document.querySelectorAll('#mj-options li');
-    newModelOptions.forEach(li => {
         li.addEventListener('click', () => {
             const url = li.getAttribute('data-xml');
             if (url) {
@@ -91,47 +85,34 @@ function bindEventListeners() {
         });
     });
 
-    // Toggle controls - remove existing listeners first
+    // Toggle controls
     const toggleControls = document.getElementById('toggle-controls');
     if (toggleControls) {
-        // Clone to remove all event listeners
-        const newToggleControls = toggleControls.cloneNode(true);
-        toggleControls.parentNode.replaceChild(newToggleControls, toggleControls);
-        
-        // Update global variable to point to new element
-        toggleControlsEl = newToggleControls;
-        
-        newToggleControls.addEventListener('click', () => {
+        toggleControls.addEventListener('click', () => {
             const controlContent = document.getElementById('control-content');
             if (controlContent) {
                 const isHidden = controlContent.style.display === 'none';
                 controlContent.style.display = isHidden ? 'block' : 'none';
-                newToggleControls.textContent = isHidden ? 'Hide' : 'Show';
+                toggleControls.textContent = isHidden ? 'Hide' : 'Show';
             }
         });
     }
 
-    // Toggle models - remove existing listeners first
+    // Toggle models
     const toggleModels = document.getElementById('toggle-models');
     if (toggleModels) {
-        // Clone to remove all event listeners
-        const newToggleModels = toggleModels.cloneNode(true);
-        toggleModels.parentNode.replaceChild(newToggleModels, toggleModels);
-        
-        // Update global variable to point to new element
-        toggleModelsEl = newToggleModels;
-        
-        newToggleModels.addEventListener('click', () => {
+        toggleModels.addEventListener('click', () => {
             const modelContent = document.getElementById('model-content');
             if (modelContent) {
                 const isHidden = modelContent.style.display === 'none';
                 modelContent.style.display = isHidden ? 'block' : 'none';
-                newToggleModels.textContent = isHidden ? 'Hide' : 'Show';
+                toggleModels.textContent = isHidden ? 'Hide' : 'Show';
             }
         });
     }
 
     // UI toggles
+    const flipToggle = document.getElementById('flip-visual');
     if (flipToggle) {
         flipToggle.addEventListener('click', () => {
             flipToggle.classList.toggle('checked');
@@ -141,15 +122,23 @@ function bindEventListeners() {
         });
     }
 
+    const collisionToggle = document.getElementById('collision-toggle');
     if (collisionToggle) {
         collisionToggle.addEventListener('click', () => {
             collisionToggle.classList.toggle('checked');
+            // If we loaded via DnD, re-enable fetch mapping for reload to allow asset access
+            if (dndSavedPathToUrl) {
+                dndActive = true;
+                dndPathToUrl = dndSavedPathToUrl;
+                dndRootDir = dndSavedRootDir;
+            }
             if (currentUrl) {
                 loadMuJoCoXml(currentUrl, { preserveView: true });
             }
         });
     }
 
+    const collisionOnlyToggle = document.getElementById('collision-only');
     if (collisionOnlyToggle) {
         collisionOnlyToggle.addEventListener('click', () => {
             collisionOnlyToggle.classList.toggle('checked');
@@ -169,10 +158,18 @@ function bindEventListeners() {
         });
     }
 
+    const radiansToggle = document.getElementById('radians-toggle');
     if (radiansToggle) {
         radiansToggle.addEventListener('click', () => {
             radiansToggle.classList.toggle('checked');
-            updateJointUI();
+            // Refresh joint number inputs to convert between deg/rad
+            jointListEl?.querySelectorAll('li[joint-name]')?.forEach(li => {
+                const name = li.getAttribute('joint-name');
+                const input = li.querySelector('input[type="number"]');
+                const angle = jointAngles.get(name) || 0;
+                const useRad = radiansToggle.classList.contains('checked');
+                input.value = useRad ? angle : angle * (180 / Math.PI);
+            });
         });
     }
 }
@@ -545,8 +542,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     const loaderManager = new THREE.LoadingManager(() => {
         // All assets finished
         if (window.__dndFetchRestore) window.__dndFetchRestore();
-    // Re-bind event listeners after drag-and-drop
-    // setTimeout(() => bindEventListeners(), 100);
+    // Event listeners are bound once on page load
     });
 
     // When loading from drag-and-drop, rewrite loader URLs to blob URLs using our map
@@ -759,8 +755,7 @@ async function loadMuJoCoXml(url, { preserveView = false } = {}) {
 
     worldRoot.add(root);
 
-    // Re-bind event listeners after loading any model
-    // setTimeout(() => bindEventListeners(), 100);
+    // Event listeners are bound once on page load
 
     if (preserveView) {
         // Restore previous camera and target
@@ -814,74 +809,11 @@ document.querySelectorAll('#mj-options li[data-xml]').forEach(li => {
     });
 });
 
-// Flip toggle wiring: toggle class and reload current model
-if (flipToggle) {
-    flipToggle.addEventListener('click', () => {
-        flipToggle.classList.toggle('checked');
-        if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
-    });
-}
+// Event listeners are now handled in bindEventListeners() function
 
-if (collisionToggle) {
-    collisionToggle.addEventListener('click', () => {
-        collisionToggle.classList.toggle('checked');
-        // If we loaded via DnD, re-enable fetch mapping for reload to allow asset access
-        if (dndSavedPathToUrl) {
-            const originalFetch = window.fetch;
-            window.fetch = (input, init) => {
-                try {
-                    const url = typeof input === 'string' ? input : input.url;
-                    const u = new URL(url, window.location.origin);
-                    const pn = u.pathname.replace(/^\/+/, '');
-                    let rel = pn;
-                    if (dndSavedRootDir) {
-                        const idx = pn.indexOf(dndSavedRootDir.replace(/^\/+/, ''));
-                        if (idx >= 0) rel = pn.substring(idx);
-                    }
-                    const candidates = [rel, pn];
-                    for (const key of candidates) {
-                        if (dndSavedPathToUrl.has(key)) return originalFetch(dndSavedPathToUrl.get(key), init);
-                    }
-                } catch (e) {}
-                return originalFetch(input, init);
-            };
-            window.__dndFetchRestore = () => { window.fetch = originalFetch; window.__dndFetchRestore = null; };
-        }
-        if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
-    });
-}
 
-if (collisionOnlyToggle) {
-    collisionOnlyToggle.addEventListener('click', () => {
-        collisionOnlyToggle.classList.toggle('checked');
-        if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
-    });
-}
 
-{
-    const cmToggle = document.getElementById('capsule-mode');
-    if (cmToggle) {
-        cmToggle.addEventListener('click', () => {
-            cmToggle.classList.toggle('checked');
-            if (currentUrl) loadMuJoCoXml(currentUrl, { preserveView: true }).catch(err => console.error(err));
-        });
-    }
-}
 
-if (radiansToggle) {
-    radiansToggle.addEventListener('click', () => {
-        radiansToggle.classList.toggle('checked');
-        // Refresh joint number inputs to convert between deg/rad
-        jointListEl?.querySelectorAll('li[joint-name]')?.forEach(li => {
-            const name = li.getAttribute('joint-name');
-            const slider = li.querySelector('input[type="range"]');
-            const input = li.querySelector('input[type="number"]');
-            const angle = jointAngles.get(name) || 0;
-            const useRad = radiansToggle.classList.contains('checked');
-            input.value = useRad ? angle : angle * (180 / Math.PI);
-        });
-    });
-}
 
 // Resize handling
 function onResize() {
