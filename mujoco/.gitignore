@@ -1,2 +1,17 @@
 *
 !.gitignore
+
+# Keep selected example models and their contents
+!engineai_pm01/
+!engineai_pm01/**
+!g1/
+!g1/**
+!go2/
+!go2/**
+!pnd_adam_lite/
+!pnd_adam_lite/**
+!unitree_h1/
+!unitree_h1/**
+!unitree_h1_2/
+!unitree_h1_2/**
+!humanoid.xml
