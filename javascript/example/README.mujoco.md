@@ -109,7 +109,13 @@ Important: We use two output folders during development/builds:
 cd javascript
 npm ci
 npm run build-examples   # creates example/bundle
-# open javascript/example/bundle/mujoco.html in a static server to verify
+npx http-server example/bundle -p 8080  # open javascript/example/bundle/mujoco.html in a static server to verify
+# If npx has network issues, use a mirror registry:
+# npx --registry https://registry.npmmirror.com http-server example/bundle -p 8080
+```
+Open the host
+```
+http://localhost:8080/mujoco.html
 ```
 
 ### Development vs Production summary

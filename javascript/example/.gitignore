@@ -1,0 +1,6 @@
+# Ignore built outputs
+bundle/
+dev-bundle/
+
+# Keep this file
+!.gitignore
