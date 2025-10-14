@@ -335,6 +335,13 @@ function buildBody(bodyEl) {
 
 async function loadMuJoCoXml(url, { preserveView = false } = {}) {
     currentUrl = url;
+    
+    // Update current model display
+    const currentModelEl = document.getElementById('current-model');
+    if (currentModelEl) {
+        const modelName = url.split('/').pop();
+        currentModelEl.textContent = `Current model: ${modelName}`;
+    }
     // Snapshot current camera state if we need to preserve
     const savedCamPos = camera.position.clone();
     const savedTarget = controls.target.clone();
