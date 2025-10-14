@@ -18,6 +18,10 @@ See the usage and deployment guide:
 
 - [`javascript/example/README.mujoco.md`](./javascript/example/README.mujoco.md)
 
+Live demo:
+
+- [mujoco-viewer.org](https://mujoco-viewer.org)
+
 # LICENSE
 
 The software is available under the [Apache V2.0 license](./LICENSE).

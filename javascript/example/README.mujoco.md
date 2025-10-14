@@ -2,6 +2,9 @@
 
 An extended viewer built on top of `urdf-loaders` to load and inspect MuJoCo XML models in the browser. It includes primitives, mesh loading (STL/OBJ), joint controls, collision visualization, and robust drag‑and‑drop for local folders.
 
+![H1](./imgs/h1.jpg)
+![Adam Lite](./imgs/adam.jpg)
+
 ## Features
 
 - Render MuJoCo primitives: sphere, capsule, box
