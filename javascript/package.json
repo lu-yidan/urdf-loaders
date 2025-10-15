@@ -7,7 +7,7 @@
   "scripts": {
     "start": "concurrently \"parcel watch ./example/*.html --out-dir ./example/dev-bundle/ --public-url . --no-cache\" \"cd .. && static-server\"",
     "build": "rollup -c",
-    "build-examples": "rm -rf ./example/bundle && parcel build ./example/*.html --out-dir ./example/bundle/ --public-url . --no-cache --no-source-maps --no-content-hash && mkdir -p ./example/bundle/mujoco && cp -r ../mujoco/* ./example/bundle/mujoco/",
+    "build-examples": "rm -rf ./example/bundle && parcel build ./example/*.html --out-dir ./example/bundle/ --public-url . --no-cache --no-source-maps --no-content-hash && mkdir -p ./example/bundle/mujoco && cp -r ../mujoco/* ./example/bundle/mujoco/ && cp ./example/robots.txt ./example/bundle/robots.txt && cp ./example/sitemap.xml ./example/bundle/sitemap.xml",
     "test": "jest",
     "lint": "eslint \"./src/*.js\" \"./test/*.js\" && tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run build"

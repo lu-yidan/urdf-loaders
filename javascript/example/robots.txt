@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://mujoco-viewer.org/sitemap.xml
+
