@@ -1,30 +1,86 @@
 <!DOCTYPE html>
 <html>
-  <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
-    <meta charset="utf-8"/>
-    <title>MuJoCo XML Viewer — Redirect</title>
-    <meta name="description" content="Redirect to MuJoCo XML Viewer."/>
-    <link rel="canonical" href="https://mujoco-viewer.org/"/>
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "MuJoCo XML Viewer",
-      "url": "https://mujoco-viewer.org/"
-    }
-    </script>
-    <meta http-equiv="refresh" content="0; url=./mujoco.html" />
-    <script>
-      // Fallback redirect for environments where meta refresh is blocked
-      (function(){
-        try { window.location.replace('./mujoco.html'); } catch(e) {}
-      })();
-    </script>
-  </head>
-  <body>
-    <noscript>
-      <p>Redirecting to <a href="./mujoco.html">mujoco.html</a>…</p>
-    </noscript>
-  </body>
-  </html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+        <meta charset="utf-8"/>
+
+        <title>MuJoCo Viewer — Online MJCF Viewer</title>
+        <meta name="description" content="MuJoCo viewer in the browser. Drag-and-drop MJCF (XML) and assets, correct materials, collisions, controls. Open-source."/>
+        <link rel="canonical" href="https://mujoco-viewer.org/"/>
+        <script type="application/ld+json">
+        {
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          "name": "MuJoCo Viewer",
+          "url": "https://mujoco-viewer.org/",
+          "description": "Online MuJoCo (MJCF) viewer with drag-and-drop, materials, collisions."
+        }
+        </script>
+
+        <link href="https://fonts.googleapis.com/css?family=Roboto:100,300" rel="stylesheet"/>
+        <link href="./styles.css" type="text/css" rel="stylesheet" />
+    </head>
+    <body tabindex="0">
+        <div id="menu">
+            <div id="header">
+                <h1>MuJoCo XML Viewer</h1>
+                <div class="credits">
+                    <div>Reference: <a href="https://github.com/gkjohnson/urdf-loaders" target="_blank">gkjohnson/urdf-loaders</a></div>
+                    <div>Modify: <a href="https://github.com/lu-yidan/urdf-loaders" target="_blank">lu-yidan/urdf-loaders</a> Author: LU Yidan</div>
+                </div>
+                <div class="instructions">
+                    You can drag and drop your own MuJoCo model folders here<br>
+                    And you can directly drag the joints of the robot to move it.
+                </div>
+            </div>
+            
+            <div id="model-section">
+                <div class="section-header">
+                    <h2>Example models</h2>
+                    <div id="toggle-models" class="toggle-section">Hide</div>
+                </div>
+                <div id="model-content">
+                    <div id="current-model">Current model: None</div>
+                    <div class="loading-hint">Please wait patiently for resources to load after clicking</div>
+                    <ul id="mj-options">
+                        <li data-xml="/mujoco/humanoid.xml" color="#3F51B5">Humanoid</li>
+                        <li data-xml="/mujoco/g1/g1.xml" color="#009688">G1</li>
+                        <li data-xml="/mujoco/go2/go2.xml" color="#FF5722">Go2</li>
+                        <li data-xml="/mujoco/unitree_h1/h1.xml" color="#9C27B0">H1</li>
+                        <li data-xml="/mujoco/unitree_h1/h1_with_hand.xml" color="#9C27B0">H1 with Hand</li>
+                        <li data-xml="/mujoco/unitree_h1_2/h1_2.xml" color="#795548">H1 v2</li>
+                        <li data-xml="/mujoco/pnd_adam_lite/adam_lite.xml" color="#607D8B">PND Adam Lite</li>
+                        <li data-xml="/mujoco/engineai_pm01/pm_v2.xml" color="#607D8B">PM v2</li>
+                    </ul>
+                </div>
+            </div>
+            
+            <div id="controls">
+                <div class="section-header">
+                    <h2>Control</h2>
+                    <div id="toggle-controls" class="toggle-section">Hide</div>
+                </div>
+                <div id="control-content">
+                    <div class="camera-instructions">Use mouse to orbit, right-drag to pan, wheel to zoom.</div>
+                    <div id="flip-visual" class="toggle">Flip visual attachments (+90° X)</div>
+                    <div id="collision-toggle" class="toggle">Show Collision</div>
+                    <div id="collision-only" class="toggle">Collision only</div>
+                    <div id="capsule-mode" class="toggle">Render collisions as capsules</div>
+                    <div id="radians-toggle" class="toggle">Use Radians</div>
+                    <ul id="joint-list"></ul>
+                </div>
+            </div>
+        </div>
+
+        <div id="viewer-root"></div>
+
+        <script src="./src/mujoco.js"></script>
+        <script>
+        // Basic drag overlay hint
+        window.addEventListener('dragover', e => { e.preventDefault(); });
+        window.addEventListener('drop', e => { e.preventDefault(); });
+        </script>
+    </body>
+    </html>
+
+
